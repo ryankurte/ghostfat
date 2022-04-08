@@ -1,0 +1,19 @@
+[package]
+name = "ghostfat"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+defmt = "0.3.1"
+log = "0.4.16"
+packing = "0.2.0"
+simplelog = "0.11.2"
+usbd_scsi = "0.1.0"
+
+[dependencies.fatfs]
+version = "0.3.5"
+#git = "https://github.com/rafalh/rust-fatfs"
+#features = [ "log_level_debug" ]
+#path = "../rust-fatfs"
