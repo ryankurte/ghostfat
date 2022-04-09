@@ -1,6 +1,7 @@
 // https://github.com/cs2dsb/stm32-usb.rs/blob/master/firmware/usb_bootloader/src/ghost_fat.rs
 
 use core::ptr::read_volatile;
+use std::marker::PhantomData;
 
 #[cfg(feature = "defmt")]
 use defmt::{debug, info, trace, warn};
@@ -22,13 +23,14 @@ pub mod dir;
 use dir::DirectoryEntry;
 
 pub mod file;
-use file::{FatFile, FatFileContent};
+use file::{File};
 
 const UF2_SIZE: u32 = 0x10000 * 2;
 const UF2_SECTORS: u32 = UF2_SIZE / (512 as u32);
 
 const ASCII_SPACE: u8 = 0x20;
 
+#[cfg(nope)]
 pub fn fat_files() -> [FatFile; 3] {
     let info = FatFile::with_content(
         "INFO_UF2TXT",
@@ -47,24 +49,26 @@ pub fn fat_files() -> [FatFile; 3] {
     [info, index, current_uf2]
 }
 
+
+
 /// # Dummy fat implementation that provides a [UF2 bootloader](https://github.com/microsoft/uf2)
-pub struct GhostFat {
+pub struct GhostFat<'a> {
     config: Config,
     fat_boot_block: FatBootBlock,
-    fat_files: [FatFile; 3],
+    fat_files: &'a [File<'a>],
 }
 
-impl GhostFat {
-    pub fn new(config: Config) -> Self {
+impl <'a> GhostFat<'a> {
+    pub fn new(files: &'a [File<'a>], config: Config) -> Self {
         Self {
             fat_boot_block: FatBootBlock::new(&config),
-            fat_files: fat_files(),
+            fat_files: files,
             config,
         }
     }
 }
 
-impl BlockDevice for GhostFat {
+impl <'a>BlockDevice for GhostFat<'a> {
     const BLOCK_BYTES: usize = 512;
 
     fn read_block(&self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError> {
@@ -134,15 +138,12 @@ impl BlockDevice for GhostFat {
 
                 // Generate directory entries for registered files
                 for (i, info) in self.fat_files.iter().enumerate() {
+                    
                     dir.name.copy_from_slice(&info.name);
                     dir.start_cluster = i as u16 + 2;
-                    dir.size = match info.content {
-                        FatFileContent::Static(content) => content.len() as u32,
-                        FatFileContent::Uf2 => {
-                            // TODO: set data length for this object
-                            0
-                        }
-                    };
+
+                    dir.size = info.len() as u32;
+
                     let start = (i + 1) * len;
                     dir.pack(&mut block[start..(start + len)]).unwrap();
                 }
@@ -154,9 +155,9 @@ impl BlockDevice for GhostFat {
 
             if section_index < self.fat_files.len() {
                 let info = &self.fat_files[section_index];
-                if let FatFileContent::Static(content) = &info.content {
-                    block[..content.len()].copy_from_slice(content);
-                }
+                
+                block[..info.len()].copy_from_slice(info.data());
+
             } else {
                 //UF2
                 debug!("Read UF2: {}", section_index);
@@ -205,16 +206,16 @@ mod tests {
     use fatfs::{FsOptions, FatType};
     use usbd_scsi::BlockDevice;
 
-    use crate::{GhostFat, config::Config};
+    use crate::{GhostFat, File, config::Config};
 
-    pub struct MockDisk {
+    pub struct MockDisk<'a> {
         pub index: usize,
-        pub disk: Arc<Mutex<GhostFat>>,
+        pub disk: Arc<Mutex<GhostFat<'a>>>,
     }
 
     // TODO: read/write do not yet handle multiple blocks
 
-    impl Read for MockDisk {
+    impl <'a> Read for MockDisk<'a> {
         fn read(&mut self, buff: &mut [u8]) -> std::io::Result<usize> {
             let d = self.disk.lock().unwrap();
 
@@ -240,7 +241,7 @@ mod tests {
         }
     }
 
-    impl Write for MockDisk {
+    impl <'a> Write for MockDisk<'a> {
         fn write(&mut self, buff: &[u8]) -> std::io::Result<usize> {
             let mut d = self.disk.lock().unwrap();
 
@@ -274,7 +275,7 @@ mod tests {
         }
     }
 
-    impl Seek for MockDisk {
+    impl <'a> Seek for MockDisk<'a> {
         fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
             // Handle seek mechanisms
             match pos {
@@ -293,10 +294,17 @@ mod tests {
     fn it_works() {
         let _ = SimpleLogger::init(LevelFilter::Debug, LogConfig::default());
 
+        // Setup GhostFat
+        let files = &[
+            File::new("INFO_UF2TXT", b"UF2 Bootloader 1.2.3\r\nModel: BluePill\r\nBoard-ID: xyz_123\r\n").unwrap(),
+        ];
+
+        let ghost_fat = GhostFat::new(files, Config::default());
+
         // Setup mock disk for fatfs
         let disk = MockDisk{
             index: 0,
-            disk: Arc::new(Mutex::new(GhostFat::new(Config::default()))),
+            disk: Arc::new(Mutex::new(ghost_fat)),
         };
 
         // Setup file system
@@ -312,7 +320,11 @@ mod tests {
 
         log::info!("Files: {:?}", files);
 
+        // Read first file
         assert_eq!(files[0].short_file_name(), "INFO_UF2.TXT");
-        assert_eq!(files[1].short_file_name(), "INDEX.HTM");
+        let mut f0 = files[0].to_file();
+        let mut s0 = String::new();
+        f0.read_to_string(&mut s0).unwrap();
+        assert_eq!(s0, "UF2 Bootloader 1.2.3\r\nModel: BluePill\r\nBoard-ID: xyz_123\r\n");
     }
 }
