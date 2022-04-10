@@ -1,7 +1,7 @@
 
 use crate::ASCII_SPACE;
 
-/// Fat16 file objects for use with GhostFAT
+/// Virtual Fat16 files for use with GhostFAT
 pub struct File<'a, const BLOCK_SIZE: usize = 512> {
     pub(crate) name: &'a str,
     pub(crate) data: FileContent<'a, BLOCK_SIZE>,
@@ -48,24 +48,28 @@ bitflags::bitflags! {
     }
 }
 
+/// Create a file from an immutable buffer
 impl <'a, const BLOCK_SIZE: usize>From<&'a [u8]> for FileContent<'a, BLOCK_SIZE> {
     fn from(d: &'a [u8]) -> Self {
         FileContent::Read(d)
     }
 }
 
+/// Create a file from an immutable array
 impl <'a, const BLOCK_SIZE: usize, const N: usize>From<&'a [u8; N]> for FileContent<'a, BLOCK_SIZE> {
     fn from(d: &'a [u8; N]) -> Self {
         FileContent::Read(d.as_ref())
     }
 }
 
+/// Create a file from a mutable buffer
 impl <'a, const BLOCK_SIZE: usize>From<&'a mut [u8]> for FileContent<'a, BLOCK_SIZE> {
     fn from(d: &'a mut [u8]) -> Self {
         FileContent::Write(d)
     }
 }
 
+/// Create a file from a mutable array
 impl <'a, const BLOCK_SIZE: usize, const N: usize>From<&'a mut [u8; N]> for FileContent<'a, BLOCK_SIZE> {
     fn from(d: &'a mut [u8; N]) -> Self {
         FileContent::Write(d.as_mut())
@@ -109,7 +113,7 @@ impl <'a, const BLOCK_SIZE: usize> File<'a, BLOCK_SIZE> {
     }
 
     /// Fetch short file name for directory entry
-    pub fn short_name(&self) -> Result<[u8; 11], FileError> {
+    pub(crate) fn short_name(&self) -> Result<[u8; 11], FileError> {
         // Split name by extension
         let mut n = self.name.split(".");
         let (prefix, ext) = match (n.next(), n.next()) {
@@ -141,7 +145,7 @@ impl <'a, const BLOCK_SIZE: usize> File<'a, BLOCK_SIZE> {
     }
 
     /// Fetch file attributes
-    pub fn attrs(&self) -> Attrs {
+    pub(crate) fn attrs(&self) -> Attrs {
         match &self.data {
             FileContent::Read(_r) => Attrs::READ_ONLY,
             FileContent::Write(_w) => Attrs::empty(),
@@ -150,7 +154,7 @@ impl <'a, const BLOCK_SIZE: usize> File<'a, BLOCK_SIZE> {
     }
 
     /// Read a <= BLOCK_SIZE chunk of the file into the provided buffer
-    pub fn chunk(&self, index: usize, buff: &mut [u8]) -> usize {
+    pub(crate) fn chunk(&self, index: usize, buff: &mut [u8]) -> usize {
         if let FileContent::RW(rw) = &self.data {
             return rw.read_chunk(index, buff)
         }
@@ -171,7 +175,7 @@ impl <'a, const BLOCK_SIZE: usize> File<'a, BLOCK_SIZE> {
     }
 
     /// Write a <= BLOCK_SIZE mutable chunk of the file from the provided buffer
-    pub fn chunk_mut(&mut self, index: usize, data: &[u8]) -> usize {
+    pub(crate) fn chunk_mut(&mut self, index: usize, data: &[u8]) -> usize {
         match &mut self.data {
             FileContent::Read(_r) => return 0,
             FileContent::Write(w) => {

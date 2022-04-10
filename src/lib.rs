@@ -18,14 +18,14 @@ use usbd_scsi::{BlockDevice, BlockDeviceError};
 pub mod config;
 pub use config::Config;
 
+pub mod file;
+pub use file::{File};
+
 pub mod boot;
 use boot::FatBootBlock;
 
 pub mod dir;
 use dir::DirectoryEntry;
-
-pub mod file;
-use file::{File};
 
 const UF2_SIZE: u32 = 0x10000 * 2;
 const UF2_SECTORS: u32 = UF2_SIZE / (512 as u32);
@@ -33,7 +33,7 @@ const UF2_SECTORS: u32 = UF2_SIZE / (512 as u32);
 const ASCII_SPACE: u8 = 0x20;
 
 
-/// # Dummy fat implementation that provides a [UF2 bootloader](https://github.com/microsoft/uf2)
+/// Virtual FAT16 File System
 pub struct GhostFat<'a, const BLOCK_SIZE: usize = 512> {
     config: Config<BLOCK_SIZE>,
     fat_boot_block: FatBootBlock,
@@ -41,6 +41,7 @@ pub struct GhostFat<'a, const BLOCK_SIZE: usize = 512> {
 }
 
 impl <'a, const BLOCK_SIZE: usize> GhostFat<'a, BLOCK_SIZE> {
+    /// Create a new file system instance with the provided files and configuration
     pub fn new(files: &'a mut [File<'a, BLOCK_SIZE>], config: Config<BLOCK_SIZE>) -> Self {
         Self {
             fat_boot_block: FatBootBlock::new(&config),
@@ -53,6 +54,7 @@ impl <'a, const BLOCK_SIZE: usize> GhostFat<'a, BLOCK_SIZE> {
 impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
     const BLOCK_BYTES: usize = BLOCK_SIZE;
 
+    /// Read a file system block
     fn read_block(&self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError> {
         assert_eq!(block.len(), Self::BLOCK_BYTES);
 
@@ -218,6 +220,7 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
         Ok(())
     }
 
+    /// Write a file system block
     fn write_block(&mut self, lba: u32, block: &[u8]) -> Result<(), BlockDeviceError> {
         debug!("GhostFAT writing lba: {} ({} bytes)", lba, block.len());
 
@@ -278,6 +281,7 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
         Ok(())
     }
 
+    /// Report the maximum block index for the file system
     fn max_lba(&self) -> u32 {
         self.config.num_blocks - 1
     }
