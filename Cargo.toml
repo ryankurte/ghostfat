@@ -1,7 +1,12 @@
 [package]
 name = "ghostfat"
+description = "Virtual FAT16 file system for embedded USB Mass Storage Device use"
+repository = "https://github.com/ryankurte/ghostfat"
+keywords = [ "fat", "fat16", "filesystem", "embedded", "no-std" ]
+categories = [ "embedded", "filesystem", "no-std" ]
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [features]
 std = []
