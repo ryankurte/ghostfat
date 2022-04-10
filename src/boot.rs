@@ -3,6 +3,7 @@ use packing::Packed;
 
 use crate::Config;
 
+/// Encodable Boot Block object
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
 #[packed(little_endian, lsb0)]
 pub struct FatBootBlock {
@@ -70,7 +71,7 @@ pub struct FatBootBlock {
 impl FatBootBlock {
 
     /// Create a new FAT BootBlock with the provided config
-    pub fn new<const BLOCK_SIZE: u32>(config: &Config<BLOCK_SIZE>) -> FatBootBlock {
+    pub fn new<const BLOCK_SIZE: usize>(config: &Config<BLOCK_SIZE>) -> FatBootBlock {
 
         let mut fat = FatBootBlock {
             jump_instruction: [0xEB, 0x3C, 0x90],

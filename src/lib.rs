@@ -32,14 +32,14 @@ const ASCII_SPACE: u8 = 0x20;
 
 
 /// # Dummy fat implementation that provides a [UF2 bootloader](https://github.com/microsoft/uf2)
-pub struct GhostFat<'a> {
-    config: Config,
+pub struct GhostFat<'a, const BLOCK_SIZE: usize = 512> {
+    config: Config<BLOCK_SIZE>,
     fat_boot_block: FatBootBlock,
-    pub(crate) fat_files: &'a mut [File<'a>],
+    pub(crate) fat_files: &'a mut [File<'a, BLOCK_SIZE>],
 }
 
-impl <'a> GhostFat<'a> {
-    pub fn new(files: &'a mut [File<'a>], config: Config) -> Self {
+impl <'a, const BLOCK_SIZE: usize> GhostFat<'a, BLOCK_SIZE> {
+    pub fn new(files: &'a mut [File<'a, BLOCK_SIZE>], config: Config<BLOCK_SIZE>) -> Self {
         Self {
             fat_boot_block: FatBootBlock::new(&config),
             fat_files: files,
@@ -57,8 +57,8 @@ impl <'a> GhostFat<'a> {
 
 }
 
-impl <'a>BlockDevice for GhostFat<'a> {
-    const BLOCK_BYTES: usize = 512;
+impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
+    const BLOCK_BYTES: usize = BLOCK_SIZE;
 
     fn read_block(&self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError> {
         assert_eq!(block.len(), Self::BLOCK_BYTES);
@@ -178,7 +178,7 @@ impl <'a>BlockDevice for GhostFat<'a> {
                     dir.start_cluster = cluster_index as u16;
                     
                     // Write attributes
-                    dir.name.copy_from_slice(&info.name_fat16_short().unwrap());
+                    dir.name.copy_from_slice(&info.short_name);
                     dir.size = info.len() as u32;
                     dir.attrs = info.attrs().bits();
 
@@ -209,8 +209,8 @@ impl <'a>BlockDevice for GhostFat<'a> {
                 if section_index < block_count + block_index {
                     let offset = section_index - block_index;
 
-                    if let Some(chunk) = f.data().chunks(512).nth(offset) {
-                        block[..chunk.len()].copy_from_slice(chunk);
+                    if f.chunk(offset, block) == 0 {
+                        warn!("Failed to read file: {} chunk: {}", f.name(), offset);
                     }
 
                     return Ok(())
@@ -268,10 +268,7 @@ impl <'a>BlockDevice for GhostFat<'a> {
 
                     debug!("Write file: {} block: {}, {} bytes", f.name(), offset, block.len());
 
-                    if let Some(chunk) = f.data_mut().map(|d| d.chunks_mut(512).nth(offset) ).flatten() {
-                        let max_len = usize::min(block.len(), chunk.len());
-                        chunk[..max_len].copy_from_slice(&block[..max_len])
-                    } else {
+                    if f.chunk_mut(offset, &block) == 0 {
                         error!("Attempted to write to read-only file");
                     }
 
