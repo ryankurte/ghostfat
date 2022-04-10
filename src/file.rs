@@ -5,7 +5,6 @@ use crate::ASCII_SPACE;
 pub struct File<'a, const BLOCK_SIZE: usize = 512> {
     pub(crate) name: &'a str,
     pub(crate) data: FileContent<'a, BLOCK_SIZE>,
-    pub(crate) short_name: [u8; 11],
 }
 
 /// Files may contain a read buffer, write buffer, or read/write trait
@@ -19,7 +18,7 @@ pub enum FileContent<'a, const BLOCK_SIZE: usize = 512> {
 }
 
 /// ReadWrite trait for generic file objects
-pub trait ReadWrite<const BLOCK_SIZE: usize = 512> {
+pub trait ReadWrite<const BLOCK_SIZE: usize = 512>: Sync {
     /// Return the maximum length of the virtual vile
     fn len(&self) -> usize;
 
@@ -77,8 +76,42 @@ impl <'a, const BLOCK_SIZE: usize> File<'a, BLOCK_SIZE> {
     /// Create a new File object with the provided data
     pub fn new<D: Into<FileContent<'a, BLOCK_SIZE>>>(name: &'a str, data: D) -> Result<Self, FileError> {
 
+        // Build object
+        let f = Self {
+            name,
+            data: data.into(),
+        };
+
+        // Check short name generation
+        f.short_name()?;
+
+        Ok(f)
+    }
+
+    /// Constant helper to create read only files.
+    /// 
+    /// Beware this function will not check short file name creation
+    pub const fn new_ro(name: &'a str, data: &'a [u8]) -> Self {
+        Self{ name, data: FileContent::Read(data) }
+    }
+
+    /// Constant helper to create read-write files.
+    /// 
+    /// Beware this function will not check short file name creation
+    #[cfg(feature="nightly")]
+    pub const fn new_rw(name: &'a str, data: &'a mut [u8]) -> Self {
+        Self{ name, data: FileContent::Write(data) }
+    }
+
+    /// Fetch the file name
+    pub fn name(&self) -> &str {
+        self.name
+    }
+
+    /// Fetch short file name for directory entry
+    pub fn short_name(&self) -> Result<[u8; 11], FileError> {
         // Split name by extension
-        let mut n = name.split(".");
+        let mut n = self.name.split(".");
         let (prefix, ext) = match (n.next(), n.next()) {
             (Some(p), Some(e)) => (p, e),
             _ => return Err(FileError::InvalidName),
@@ -95,19 +128,7 @@ impl <'a, const BLOCK_SIZE: usize> File<'a, BLOCK_SIZE> {
         short_name[..prefix.len()].copy_from_slice(prefix.as_bytes());
         short_name[11 - ext.len()..].copy_from_slice(ext.as_bytes());
 
-        // Build object
-        let f = Self {
-            name,
-            short_name,
-            data: data.into(),
-        };
-
-        Ok(f)
-    }
-
-    /// Fetch the file name
-    pub fn name(&self) -> &str {
-        self.name
+        Ok(short_name)
     }
 
     /// Fetch the file length

@@ -1,7 +1,9 @@
-// https://github.com/cs2dsb/stm32-usb.rs/blob/master/firmware/usb_bootloader/src/ghost_fat.rs
+//! GhostFAT Virtual FAT implementation for embedded USB SCSI devices
+//! 
+// Based on: https://github.com/cs2dsb/stm32-usb.rs/blob/master/firmware/usb_bootloader/src/ghost_fat.rs
 
-use core::ptr::read_volatile;
-use std::marker::PhantomData;
+#![cfg_attr(not(feature="std"), no_std)]
+#![cfg_attr(feature="nightly", feature(const_mut_refs))]
 
 #[cfg(feature = "defmt")]
 use defmt::{debug, info, trace, warn, error};
@@ -46,15 +48,6 @@ impl <'a, const BLOCK_SIZE: usize> GhostFat<'a, BLOCK_SIZE> {
             config,
         }
     }
-
-    pub fn write(&mut self, addr: u32, data: &[u8]) -> Result<(), BlockDeviceError> {
-        let lba = addr / 512;
-        let _offset = addr % 512;
-
-      
-        Ok(())
-    }
-
 }
 
 impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
@@ -178,7 +171,7 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
                     dir.start_cluster = cluster_index as u16;
                     
                     // Write attributes
-                    dir.name.copy_from_slice(&info.short_name);
+                    dir.name.copy_from_slice(&info.short_name().unwrap());
                     dir.size = info.len() as u32;
                     dir.attrs = info.attrs().bits();
 
