@@ -336,7 +336,7 @@ mod tests {
                 lba += 1;
             }
             
-            debug!("Read {} bytes at index 0x{:02x} (lba: {} offset: 0x{:02x}), data: {:02x?}", buff.len(), self.index, lba, offset, buff);
+            trace!("Read {} bytes at index 0x{:02x} (lba: {} offset: 0x{:02x}), data: {:02x?}", buff.len(), self.index, lba, offset, buff);
 
             // Increment index
             self.index += buff.len();
@@ -352,7 +352,7 @@ mod tests {
             let lba = self.index as u32 / 512;
             let offset = self.index as usize % 512;
 
-            debug!("Write {} bytes at index: 0x{:02x} (lba: {} offset: 0x{:02x}): data: {:02x?}", buff.len(), self.index, lba, offset, buff);
+            trace!("Write {} bytes at index: 0x{:02x} (lba: {} offset: 0x{:02x}): data: {:02x?}", buff.len(), self.index, lba, offset, buff);
 
 
             {
@@ -399,7 +399,7 @@ mod tests {
     }
 
     fn setup<'a>(files: &'a mut [File<'a>]) -> MockDisk<'a> {
-        let _ = simplelog::TermLogger::init(LevelFilter::Debug, LogConfig::default(), simplelog::TerminalMode::Mixed, simplelog::ColorChoice::Auto);
+        let _ = simplelog::TermLogger::init(LevelFilter::Info, LogConfig::default(), simplelog::TerminalMode::Mixed, simplelog::ColorChoice::Auto);
 
         let ghost_fat = GhostFat::new(files, Config::default());
 
@@ -558,9 +558,57 @@ mod tests {
 
         // Fetch first file
         assert_eq!(f[0].short_file_name(), "TEST.BIN");
-        
 
         let mut d1 = [0u8; 1024];
+        for i in 0..d1.len() {
+            d1[i] = rand::random::<u8>();
+        }
+
+        // Rewind and write data
+        let mut f0 = f[0].to_file();
+        f0.rewind();
+        f0.write_all(&d1).unwrap();
+        f0.flush();
+        drop(f0);
+
+        // Read back written data
+        let mut f1 = f[0].to_file();
+        let mut v0 = Vec::new();
+        f1.read_to_end(&mut v0).unwrap();
+        assert_eq!(v0.as_slice(), d1);
+    }
+
+    #[test]
+    fn write_huge_file() {
+
+        // GhostFAT files
+        let mut data = [0u8; 64 * 1024];
+        for i in 0..data.len() {
+            data[i] = rand::random::<u8>();
+        }
+
+        let files = &mut [
+            File::new("TEST.BIN", &mut data).unwrap(),
+        ];
+
+        // Setup GhostFAT
+        let disk = setup(files);
+
+        // Setup fatfs
+        let fs = fatfs::FileSystem::new(disk, FsOptions::new()).unwrap();
+        assert_eq!(fs.fat_type(), FatType::Fat16);
+
+        // Check base directory
+        let root_dir = fs.root_dir();
+
+        // Load files
+        let f: Vec<_> = root_dir.iter().map(|v| v.unwrap() ).collect();
+        log::info!("Files: {:?}", f);
+
+        // Fetch first file
+        assert_eq!(f[0].short_file_name(), "TEST.BIN");
+
+        let mut d1 = [0u8; 64 * 1024];
         for i in 0..d1.len() {
             d1[i] = rand::random::<u8>();
         }
