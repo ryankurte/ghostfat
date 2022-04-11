@@ -58,7 +58,7 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
     fn read_block(&self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError> {
         assert_eq!(block.len(), Self::BLOCK_BYTES);
 
-        debug!("GhostFAT reading lba: {} ({} bytes)", lba, block.len());
+        trace!("GhostFAT reading lba: {} ({} bytes)", lba, block.len());
 
         // Clear the buffer since we're sending all of it
         for b in block.iter_mut() {
@@ -77,19 +77,22 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
         } else if lba < self.config.start_rootdir() {
             let mut section_index = lba - self.config.start_fat0();
 
+            debug!("Read FAT section index: {}", section_index);
+
             // TODO: why?
             // https://github.com/lupyuen/bluepill-bootloader/blob/master/src/ghostfat.c#L207
             if section_index >= self.config.sectors_per_fat() {
                 section_index -= self.config.sectors_per_fat();
             }
 
-            // Track block indicies for each file
-            let mut index = 1;
+            // Track allocated block count
+            let mut index = 2;
+            block[0] = 0xf0;
 
             // Set allocations for static files
-            if section_index == 0 {
-                block[0] = 0xF0;
+            if section_index == 0 || true {
 
+                // Allocate blocks for each file
                 for f in self.fat_files.iter() {
                     // Determine number of blocks required for each file
                     let mut block_count = f.len() / Self::BLOCK_BYTES;
@@ -97,56 +100,40 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
                         block_count += 1;
                     }
 
+                    trace!("File: {}, {} blocks starting at {}", f.name(), block_count, index);
+
                     // Write block allocations (2 byte)
                     for i in 0..block_count {
+                        let j = i * 2;
+
                         if i == block_count - 1 {
-                            // Final block containes 0xFFFF
-                            block[index + i] = 0xFF;
-                            block[index + i + 1] = 0xFF;
+                            // Final block contains 0xFFFF
+                            block[index * 2 + j] = 0xFF;
+                            block[index * 2 + j + 1] = 0xFF;
                         } else {
                             // Preceding blocks should link to next object
                             // TODO: not sure this linking is correct... should split and test
-                            block[index + i] = ((index + i + 2) >> 8) as u8;
-                            block[index + i + 1] =  (index + i + 3) as u8;
+                            block[index * 2 + j] =  (index + i + 1) as u8;
+                            block[index * 2 + j + 1] = ((index + i + 1) >> 8) as u8;
                         }
                     }
 
                     // Increase block index
-                    index += block_count * 2;
+                    index += block_count;
                 }
 
-                // Write trailer
+                // Add trailer
                 for i in 0..4 {
-                    block[index + i] = 0xFF;
+                    block[index * 2 + i] = 0xFF;
                 }
                 index += 4;
-
+                let _ = index;
             }
 
-            // Set remaining sectors as occupied
-            for b in &mut block[index..] {
-                *b = 0xFF;
+            // Lock further chunks
+            for b in &mut block[index*2..] {
+                *b = 0xFE;
             }
-
-            // TODO: is this setting allocations for the uf2 file?
-            // WTH is happening here and why is it load bearing..?
-
-            // Assuming each file is one block, uf2 is offset by this
-            let uf2_first_sector = self.fat_files.len() + 1;
-            let uf2_last_sector = uf2_first_sector + UF2_SECTORS as usize - 1;
-
-            for i in 0..256_usize {
-                let v = section_index as usize * 256 + i;
-                let j = 2 * i;
-                if v >= uf2_first_sector && v < uf2_last_sector {
-                    block[j + 0] = (((v + 1) >> 0) & 0xFF) as u8;
-                    block[j + 1] = (((v + 1) >> 8) & 0xFF) as u8;
-                } else if v == uf2_last_sector {
-                    block[j + 0] = 0xFF;
-                    block[j + 1] = 0xFF;
-                }
-            }
-
 
         // Directory entries follow
         } else if lba < self.config.start_clusters() {
@@ -171,7 +158,7 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
                         block_count += 1;
                     }
                     dir.start_cluster = cluster_index as u16;
-                    
+
                     // Write attributes
                     dir.name.copy_from_slice(&info.short_name().unwrap());
                     dir.size = info.len() as u32;
@@ -190,6 +177,8 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
         } else {
             let section_index = (lba - self.config.start_clusters()) as usize;
 
+            debug!("Read cluster index: 0x{:04x} (lba: 0x{:04x})", section_index, lba);
+
             // Iterate through files to find matching block
             let mut block_index = 0;
             for f in self.fat_files.iter() {
@@ -204,6 +193,8 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
                 if section_index < block_count + block_index {
                     let offset = section_index - block_index;
 
+                    debug!("Read file: {} chunk: 0x{:02x}", f.name(), offset);
+
                     if f.chunk(offset, block) == 0 {
                         warn!("Failed to read file: {} chunk: {}", f.name(), offset);
                     }
@@ -215,7 +206,7 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
                 block_index += block_count;
             }
 
-            debug!("Unhandled read section: {}", section_index);
+            warn!("Unhandled cluster read 0x{:04x} (lba: 0x{:04x})", section_index, lba);
         }
         Ok(())
     }

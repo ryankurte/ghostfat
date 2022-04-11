@@ -10,7 +10,11 @@ Derived from:
 
 ## Status
 
+[![GitHub tag](https://img.shields.io/github/tag/ryankurte/ghostfat.svg)](https://github.com/ryankurte/ghostfat)
+[![Crates.io](https://img.shields.io/crates/v/ghostfat.svg)](https://crates.io/crates/ghostfat)
+[![Docs.rs](https://docs.rs/ghostfat/badge.svg)](https://docs.rs/ghostfat)
 
+**Extremely WIP**
 ## Resources
 
 - https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system
