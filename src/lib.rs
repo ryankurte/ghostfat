@@ -19,7 +19,7 @@ mod config;
 pub use config::Config;
 
 mod file;
-pub use file::{File};
+pub use file::{File, FileContent, DynamicFile};
 
 mod boot;
 use boot::FatBootBlock;
@@ -48,6 +48,7 @@ impl <'a, const BLOCK_SIZE: usize> GhostFat<'a, BLOCK_SIZE> {
     }
 }
 
+/// [`BlockDevice`] implementation for use with [`usbd_scsi`]
 impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
     const BLOCK_BYTES: usize = BLOCK_SIZE;
 

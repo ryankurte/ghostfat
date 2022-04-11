@@ -1,5 +1,6 @@
 
 
+/// Virtual file system configuration
 pub struct Config<const BLOCK_SIZE: usize = 512> {
     /// Number of blocks in the file system
     pub num_blocks: u32,

@@ -1,7 +1,7 @@
 
 use crate::ASCII_SPACE;
 
-/// Virtual Fat16 files for use with GhostFAT
+/// Virtual file object
 pub struct File<'a, const BLOCK_SIZE: usize = 512> {
     pub(crate) name: &'a str,
     pub(crate) data: FileContent<'a, BLOCK_SIZE>,
@@ -14,11 +14,11 @@ pub enum FileContent<'a, const BLOCK_SIZE: usize = 512> {
     /// Read/write buffer
     Write(&'a mut [u8]),
     /// Read/write object
-    RW(&'a dyn ReadWrite<BLOCK_SIZE>),
+    Dynamic(&'a dyn DynamicFile<BLOCK_SIZE>),
 }
 
 /// ReadWrite trait for generic file objects
-pub trait ReadWrite<const BLOCK_SIZE: usize = 512>: Sync {
+pub trait DynamicFile<const BLOCK_SIZE: usize = 512>: Sync {
     /// Return the maximum length of the virtual vile
     fn len(&self) -> usize;
 
@@ -107,6 +107,13 @@ impl <'a, const BLOCK_SIZE: usize> File<'a, BLOCK_SIZE> {
         Self{ name, data: FileContent::Write(data) }
     }
 
+    /// Constant helper to create dynamic files.
+    /// 
+    /// Beware this function will not check short file name creation
+    pub const fn new_dyn(name: &'a str, data: &'a dyn DynamicFile<BLOCK_SIZE>) -> Self {
+        Self{ name, data: FileContent::Dynamic(data) }
+    }
+
     /// Fetch the file name
     pub fn name(&self) -> &str {
         self.name
@@ -140,7 +147,7 @@ impl <'a, const BLOCK_SIZE: usize> File<'a, BLOCK_SIZE> {
         match &self.data {
             FileContent::Read(r) => r.len(),
             FileContent::Write(w) => w.len(),
-            FileContent::RW(rw) => rw.len(),
+            FileContent::Dynamic(rw) => rw.len(),
         }
     }
 
@@ -149,13 +156,13 @@ impl <'a, const BLOCK_SIZE: usize> File<'a, BLOCK_SIZE> {
         match &self.data {
             FileContent::Read(_r) => Attrs::READ_ONLY,
             FileContent::Write(_w) => Attrs::empty(),
-            FileContent::RW(_rw) => Attrs::empty(),
+            FileContent::Dynamic(_rw) => Attrs::empty(),
         }
     }
 
     /// Read a <= BLOCK_SIZE chunk of the file into the provided buffer
     pub(crate) fn chunk(&self, index: usize, buff: &mut [u8]) -> usize {
-        if let FileContent::RW(rw) = &self.data {
+        if let FileContent::Dynamic(rw) = &self.data {
             return rw.read_chunk(index, buff)
         }
 
@@ -185,7 +192,7 @@ impl <'a, const BLOCK_SIZE: usize> File<'a, BLOCK_SIZE> {
                     return len;
                 }
             },
-            FileContent::RW(rw) => return rw.write_chunk(index, data),
+            FileContent::Dynamic(rw) => return rw.write_chunk(index, data),
         }
 
         return 0
