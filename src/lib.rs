@@ -15,20 +15,17 @@ use packing::{Packed, PackedSize};
 
 use usbd_scsi::{BlockDevice, BlockDeviceError};
 
-pub mod config;
+mod config;
 pub use config::Config;
 
-pub mod file;
+mod file;
 pub use file::{File};
 
-pub mod boot;
+mod boot;
 use boot::FatBootBlock;
 
-pub mod dir;
+mod dir;
 use dir::DirectoryEntry;
-
-const UF2_SIZE: u32 = 0x10000 * 2;
-const UF2_SECTORS: u32 = UF2_SIZE / (512 as u32);
 
 const ASCII_SPACE: u8 = 0x20;
 
@@ -227,6 +224,9 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
         // Write directory entry
         } else if lba < self.config.start_clusters() {
             // TODO: do we need to wrap this somehow to remap writes?
+            // it _appears_ it's okay to assume the FAT driver will use existing
+            // allocated blocks so this is not required provided files do not exceed
+            // configured sizes
             warn!("Attempted to write directory entries");
 
             let section_index = lba - self.config.start_rootdir();
