@@ -5,6 +5,7 @@ use crate::Config;
 
 /// Encodable Boot Block object
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Packed)]
+#[cfg_attr(feature="defmt", derive(defmt::Format))]
 #[packed(little_endian, lsb0)]
 pub struct FatBootBlock {
     #[pkd(7, 0, 0, 2)]
@@ -14,7 +15,7 @@ pub struct FatBootBlock {
     pub oem_info: [u8; 8],
     
     #[pkd(7, 0, 11, 12)]
-    pub sector_size: u16,
+    pub bytes_per_sector: u16,
     
     #[pkd(7, 0, 13, 13)]
     pub sectors_per_cluster: u8,
@@ -76,7 +77,7 @@ impl FatBootBlock {
         let mut fat = FatBootBlock {
             jump_instruction: [0xEB, 0x3C, 0x90],
             oem_info: [0x20; 8],
-            sector_size: config.sector_size() as u16,
+            bytes_per_sector: BLOCK_SIZE as u16,
             sectors_per_cluster: 1,
             reserved_sectors: config.reserved_sectors as u16,
             fat_copies: 2,
@@ -99,6 +100,8 @@ impl FatBootBlock {
         fat.oem_info[..7].copy_from_slice("UF2 UF2".as_bytes());
         fat.volume_label[..8].copy_from_slice("BLUEPILL".as_bytes());
         fat.filesystem_identifier[..5].copy_from_slice("FAT16".as_bytes());
+
+        crate::info!("BootBlock: {:?}", fat);
 
         fat
     }

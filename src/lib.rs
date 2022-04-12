@@ -87,12 +87,16 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
             }
 
             // Track allocated block count
-            let mut index = 2;
-            
+            let mut index = 0;
+        
             // Set allocations for static files
             // TODO: unwrap files across FATs
             if section_index == 0 {
+                index = 2;
                 block[0] = 0xf0;
+                block[1] = 0xff;
+                block[2] = 0xff;
+                block[3] = 0xff;
 
                 // Allocate blocks for each file
                 for f in self.fat_files.iter() {
@@ -123,18 +127,11 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
                     // Increase block index
                     index += block_count;
                 }
-
-                // Add trailer
-                for i in 0..4 {
-                    block[index * 2 + i] = 0xFF;
-                }
-                index += 4;
-                let _ = index;
             }
 
-            error!("FAT {}: {:?}", section_index, &block[..index*2]);
+            warn!("FAT {}: {:?}", section_index, &block[..index*2]);
 
-            // Lock further chunks
+            // Mark further chunks as used
             #[cfg(nope)]
             for b in &mut block[index*2..] {
                 *b = 0xFE;

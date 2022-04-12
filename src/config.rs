@@ -9,6 +9,11 @@ pub struct Config<const BLOCK_SIZE: usize = 512> {
     /// Root directory sectors
     pub root_dir_sectors: u32,
 
+    pub oem_info: &'static str,
+
+    pub volume_label: &'static str,
+
+    pub filesystem_identifier: &'static str,
 }
 
 impl <const BLOCK_SIZE: usize> Default for Config<BLOCK_SIZE> {
@@ -17,6 +22,9 @@ impl <const BLOCK_SIZE: usize> Default for Config<BLOCK_SIZE> {
             num_blocks: 8000,
             reserved_sectors: 1,
             root_dir_sectors: 4,
+            oem_info: "UF2 UF2",
+            volume_label: "GHOSTFAT",
+            filesystem_identifier: "FAT16",
         }
     }
 }
@@ -30,7 +38,7 @@ impl <const BLOCK_SIZE: usize> Config<BLOCK_SIZE> {
 
     /// Calculate number of sectors per FAT
     pub const fn sectors_per_fat(&self) -> u32 {
-        (self.num_blocks * 2) / BLOCK_SIZE as u32 - 1
+        (self.num_blocks * 2 + BLOCK_SIZE as u32 - 1) / BLOCK_SIZE as u32
     }
 
     /// Calculate FAT0 start
@@ -52,4 +60,25 @@ impl <const BLOCK_SIZE: usize> Config<BLOCK_SIZE> {
     pub const fn start_clusters(&self) -> u32 {
         self.start_rootdir() + self.root_dir_sectors
     }
+
+    /// Encode config to boot block
+    /// 
+    /// See: [https://academy.cba.mit.edu/classes/networking_communications/SD/FAT.pdf]()
+    pub fn encode(&self, block: &mut [u8]) {
+        let mut index = 0;
+
+        // Jump instruction
+        block[index..][..3].copy_from_slice(&[0xEB, 0x3C, 0x90]);
+        index += 3;
+        
+
+        // OEM info
+        let len = usize::min(self.oem_info.len(), 8);
+        block[index..][..len].copy_from_slice(&self.oem_info.as_bytes()[..len]);
+        index += 8;
+
+
+        todo!();
+    }
+
 }
