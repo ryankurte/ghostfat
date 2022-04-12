@@ -14,19 +14,19 @@ pub enum FileContent<'a, const BLOCK_SIZE: usize = 512> {
     /// Read/write buffer
     Write(&'a mut [u8]),
     /// Read/write object
-    Dynamic(&'a dyn DynamicFile<BLOCK_SIZE>),
+    Dynamic(&'a mut dyn DynamicFile<BLOCK_SIZE>),
 }
 
 /// ReadWrite trait for generic file objects
-pub trait DynamicFile<const BLOCK_SIZE: usize = 512>: Sync {
-    /// Return the maximum length of the virtual vile
+pub trait DynamicFile<const BLOCK_SIZE: usize = 512>: Sync + Send {
+    /// Return the maximum length of the virtual file in bytes
     fn len(&self) -> usize;
 
     /// Read a chunk of the virtual file, returning the read length
-    fn read_chunk(&self, index: usize, buff: &mut [u8]) -> usize;
+    fn read_chunk(&self, chunk_index: usize, buff: &mut [u8]) -> usize;
 
     /// Write a chunk of the virtual file, returning the write length
-    fn write_chunk(&self, index: usize, data: &[u8]) -> usize;
+    fn write_chunk(&mut self, chunk_index: usize, data: &[u8]) -> usize;
 }
 
 /// File error types
@@ -110,7 +110,8 @@ impl <'a, const BLOCK_SIZE: usize> File<'a, BLOCK_SIZE> {
     /// Constant helper to create dynamic files.
     /// 
     /// Beware this function will not check short file name creation
-    pub const fn new_dyn(name: &'a str, data: &'a dyn DynamicFile<BLOCK_SIZE>) -> Self {
+    #[cfg(feature="nightly")]
+    pub const fn new_dyn(name: &'a str, data: &'a mut dyn DynamicFile<BLOCK_SIZE>) -> Self {
         Self{ name, data: FileContent::Dynamic(data) }
     }
 

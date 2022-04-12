@@ -30,7 +30,7 @@ impl <const BLOCK_SIZE: usize> Config<BLOCK_SIZE> {
 
     /// Calculate number of sectors per FAT
     pub const fn sectors_per_fat(&self) -> u32 {
-        (self.num_blocks * 2 + BLOCK_SIZE as u32 - 1) / BLOCK_SIZE as u32
+        (self.num_blocks * 2) / BLOCK_SIZE as u32 - 1
     }
 
     /// Calculate FAT0 start

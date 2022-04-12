@@ -40,6 +40,9 @@ pub struct GhostFat<'a, const BLOCK_SIZE: usize = 512> {
 impl <'a, const BLOCK_SIZE: usize> GhostFat<'a, BLOCK_SIZE> {
     /// Create a new file system instance with the provided files and configuration
     pub fn new(files: &'a mut [File<'a, BLOCK_SIZE>], config: Config<BLOCK_SIZE>) -> Self {
+
+        debug!("Configuring ghostfat with {} {} byte sectors ({} byte total), {} sector FATs", config.num_blocks, BLOCK_SIZE, config.num_blocks as usize * BLOCK_SIZE, config.sectors_per_fat());
+
         Self {
             fat_boot_block: FatBootBlock::new(&config),
             fat_files: files,
@@ -77,18 +80,19 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
 
             debug!("Read FAT section index: {}", section_index);
 
-            // TODO: why?
-            // https://github.com/lupyuen/bluepill-bootloader/blob/master/src/ghostfat.c#L207
+            // The file system contains two copies of the FAT
+            // wrap the section index to overlap these
             if section_index >= self.config.sectors_per_fat() {
                 section_index -= self.config.sectors_per_fat();
             }
 
             // Track allocated block count
             let mut index = 2;
-            block[0] = 0xf0;
-
+            
             // Set allocations for static files
-            if section_index == 0 || true {
+            // TODO: unwrap files across FATs
+            if section_index == 0 {
+                block[0] = 0xf0;
 
                 // Allocate blocks for each file
                 for f in self.fat_files.iter() {
@@ -128,7 +132,10 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
                 let _ = index;
             }
 
+            error!("FAT {}: {:?}", section_index, &block[..index*2]);
+
             // Lock further chunks
+            #[cfg(nope)]
             for b in &mut block[index*2..] {
                 *b = 0xFE;
             }

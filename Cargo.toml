@@ -9,19 +9,26 @@ edition = "2021"
 license = "MPL-2.0"
 
 [features]
+defmt-default = [ "defmt", "defmt-info" ]
+defmt-trace = []
+defmt-debug = []
+defmt-info = []
+defmt-warn = []
+defmt-error = []
+
 std = []
 nightly = []
 default = [ "std" ]
 
 [dependencies]
-defmt = "0.3.1"
+defmt = {version = "0.3.1", optional = true }
 log = { version = "0.4.16", default_features = false }
 packing = "0.2.0"
 usbd_scsi = "0.1.0"
 bitflags = "1.3.2"
-pretty_assertions = "1.2.1"
 
 [dev-dependencies]
 fatfs = "0.3.5"
 rand = "0.8.5"
 simplelog = "0.11.2"
+pretty_assertions = "1.2.1"
