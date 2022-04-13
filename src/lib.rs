@@ -78,7 +78,7 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
         } else if lba < self.config.start_rootdir() {
             let mut section_index = lba - self.config.start_fat0();
 
-            debug!("Read FAT section index: {}", section_index);
+            info!("Read FAT section index: {} (lba: {})", section_index, lba);
 
             // The file system contains two copies of the FAT
             // wrap the section index to overlap these
@@ -91,43 +91,68 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
         
             // Set allocations for static files
             // TODO: unwrap files across FATs
+
+            // First FAT contains media and file end marker in clusters 0 and 1
             if section_index == 0 {
                 index = 2;
                 block[0] = 0xf0;
                 block[1] = 0xff;
                 block[2] = 0xff;
                 block[3] = 0xff;
-
-                // Allocate blocks for each file
-                for f in self.fat_files.iter() {
-                    // Determine number of blocks required for each file
-                    let mut block_count = f.len() / Self::BLOCK_BYTES;
-                    if f.len() % Self::BLOCK_BYTES != 0 {
-                        block_count += 1;
-                    }
-
-                    trace!("File: {}, {} blocks starting at {}", f.name(), block_count, index);
-
-                    // Write block allocations (2 byte)
-                    for i in 0..block_count {
-                        let j = i * 2;
-
-                        if i == block_count - 1 {
-                            // Final block contains 0xFFFF
-                            block[index * 2 + j] = 0xFF;
-                            block[index * 2 + j + 1] = 0xFF;
-                        } else {
-                            // Preceding blocks should link to next object
-                            // TODO: not sure this linking is correct... should split and test
-                            block[index * 2 + j] =  (index + i + 1) as u8;
-                            block[index * 2 + j + 1] = ((index + i + 1) >> 8) as u8;
-                        }
-                    }
-
-                    // Increase block index
-                    index += block_count;
-                }
             }
+
+            // Calculate offset for FAT
+            let fat_offset = section_index as usize * BLOCK_SIZE / 2;
+            let mut block_index = 0;
+
+            // Allocate blocks for each file
+            for f in self.fat_files.iter() {
+                // Determine number of blocks required for each file
+                let block_count = f.num_blocks();
+
+                // Skip entries for prior / future FATs
+                if (block_index + block_count < fat_offset) || (block_index > fat_offset) {
+                    block_index += block_count;
+                    continue;
+                }
+
+                info!("FAT: 0x{:02x} File: {}, {} blocks offset: {}", section_index, f.name(), block_count, block_index);
+
+                // Compute file / FAT overlap
+                let start = if fat_offset > block_index {
+                    fat_offset - block_index
+                } else {
+                    0
+                };
+
+                // Limit to available FAT size
+                let end = usize::min(block_count, (BLOCK_SIZE / 2) - index);
+
+                info!("FAT offset: {} Start: {} end: {}", fat_offset, start, end);
+
+                // Write block allocations (2 byte)
+                for i in start..end {
+                    let j = i * 2;
+
+                    if i == block_count - 1 {
+                        // Final block contains 0xFFFF
+                        block[index * 2 + j] = 0xFF;
+                        block[index * 2 + j + 1] = 0xFF;
+                    } else {
+                        // Preceding blocks should link to next object
+                        // TODO: not sure this linking is correct... should split and test
+                        block[index * 2 + j] =  (block_index + 2 + i + 1) as u8;
+                        block[index * 2 + j + 1] = ((block_index + 2 + i + 1) >> 8) as u8;
+                    }
+                }
+
+                // Increase FAT index
+                index += end - start;
+
+                // Increase block index
+                block_index += block_count;
+            }
+
 
             warn!("FAT {}: {:?}", section_index, &block[..index*2]);
 
@@ -262,6 +287,7 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
 
                     if f.chunk_mut(offset, &block) == 0 {
                         error!("Attempted to write to read-only file");
+                        return Err(BlockDeviceError::WriteError);
                     }
 
                     return Ok(())
@@ -271,7 +297,7 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
                 block_index += block_count;
             }
 
-            warn!("Unhandled write section: {}", section_index);
+            debug!("Unhandled write section: {}", section_index);
         }
 
         Ok(())
@@ -417,44 +443,9 @@ mod tests {
         disk
     }
 
-    #[test]
-    fn read_small_file() {
-
-        // GhostFAT files
-        let data = b"UF2 Bootloader 1.2.3\r\nModel: BluePill\r\nBoard-ID: xyz_123\r\n";
-        let files = &mut [
-            File::new("INFO_UF2.TXT", data).unwrap(),
-        ];
-
-        // Setup GhostFAT
-        let disk = setup(files);
-
-        // Setup fatfs
-        let opts = FsOptions::new().update_accessed_date(false);
-        let fs = fatfs::FileSystem::new(disk, opts).unwrap();
-        assert_eq!(fs.fat_type(), FatType::Fat16);
-
-        // Check base directory
-        let root_dir = fs.root_dir();
-
-        // Load files
-        let f: Vec<_> = root_dir.iter().map(|v| v.unwrap() ).collect();
-        log::info!("Files: {:?}", f);
-
-        // Read first file
-        assert_eq!(f[0].short_file_name(), "INFO_UF2.TXT");
-        let mut f0 = f[0].to_file();
-        
-        let mut s0 = String::new();
-        f0.read_to_string(&mut s0).unwrap();
-
-        assert_eq!(s0.as_bytes(), data);
-    }
-
-    #[test]
-    fn read_large_file() {
-
-        let mut data = [0u8; 1024];
+    fn read_file<const N: usize>() {
+        // Setup data
+        let mut data = [0u8; N];
         for i in 0..data.len() {
             data[i] = rand::random::<u8>();
         }
@@ -485,151 +476,87 @@ mod tests {
         let mut v0 = Vec::new();
         f0.read_to_end(&mut v0).unwrap();
 
-        assert_eq!(v0.as_slice(), data);
+        assert_eq!(v0.as_slice() == data, true);
+    }
+
+    #[test]
+    fn read_small_file() {
+        read_file::<64>();
+    }
+
+    #[test]
+    fn read_multi_cluster_file() {
+        read_file::<1024>();
+    }
+
+    #[test]
+    #[ignore = "not yet supported"]
+    fn read_multi_fat_file() {
+        read_file::<200_000>();
+    }
+
+    fn write_file<const N: usize>() {
+
+        // Generate initial data
+        let mut data = [0u8; N];
+        for i in 0..data.len() {
+            data[i] = rand::random::<u8>();
+        }
+
+        // Setup GhostFAT
+        let files = &mut [
+            File::new("TEST.BIN", &mut data).unwrap(),
+        ];
+        let disk = setup(files);
+
+        // Setup fatfs
+        let fs = fatfs::FileSystem::new(disk, FsOptions::new()).unwrap();
+        assert_eq!(fs.fat_type(), FatType::Fat16);
+
+        // Check base directory
+        let root_dir = fs.root_dir();
+
+        // Load files
+        let f: Vec<_> = root_dir.iter().map(|v| v.unwrap() ).collect();
+        log::info!("Files: {:?}", f);
+
+        // Fetch file handle
+        assert_eq!(f[0].short_file_name(), "TEST.BIN");
+
+        // Generate new data
+        let mut d1 = [0u8; N];
+        for i in 0..d1.len() {
+            d1[i] = rand::random::<u8>();
+        }
+
+        // Rewind and write data
+        let mut f0 = f[0].to_file();
+        f0.rewind();
+        f0.write_all(&d1).unwrap();
+        f0.flush();
+        drop(f0);
+
+        // Read back written data
+        let mut f1 = f[0].to_file();
+        let mut v0 = Vec::new();
+        f1.read_to_end(&mut v0).unwrap();
+        assert_eq!(v0.as_slice(), d1);
     }
 
     #[test]
     fn write_small_file() {
-
-        // GhostFAT files
-        let mut data = [0u8; 8];
-        let files = &mut [
-            File::new("TEST.TXT", data.as_mut()).unwrap(),
-        ];
-
-        // Setup GhostFAT
-        let disk = setup(files);
-
-        // Setup fatfs
-        let fs = fatfs::FileSystem::new(disk, FsOptions::new()).unwrap();
-        assert_eq!(fs.fat_type(), FatType::Fat16);
-
-        // Check base directory
-        let root_dir = fs.root_dir();
-
-        // Load files
-        let f: Vec<_> = root_dir.iter().map(|v| v.unwrap() ).collect();
-        log::info!("Files: {:?}", f);
-
-        // Fetch first file
-        assert_eq!(f[0].short_file_name(), "TEST.TXT");
-        
-
-        let d1 = b"DEF456\r\n";
-
-        log::info!("Write file");
-
-        // Rewind and write data
-        let mut f0 = f[0].to_file();
-        f0.write_all(d1).unwrap();
-        f0.flush();
-        drop(f0);
-
-        log::info!("Read file");
-
-        // Read back written data
-        let mut f1 = f[0].to_file();
-        let mut s0 = String::new();
-        f1.read_to_string(&mut s0).unwrap();
-        assert_eq!(s0.as_bytes(), d1);
+        write_file::<64>();
     }
 
     #[test]
-    fn write_large_file() {
-
-        // GhostFAT files
-        let mut data = [0u8; 1024];
-        for i in 0..data.len() {
-            data[i] = rand::random::<u8>();
-        }
-
-        let files = &mut [
-            File::new("TEST.BIN", &mut data).unwrap(),
-        ];
-
-        // Setup GhostFAT
-        let disk = setup(files);
-
-        // Setup fatfs
-        let fs = fatfs::FileSystem::new(disk, FsOptions::new()).unwrap();
-        assert_eq!(fs.fat_type(), FatType::Fat16);
-
-        // Check base directory
-        let root_dir = fs.root_dir();
-
-        // Load files
-        let f: Vec<_> = root_dir.iter().map(|v| v.unwrap() ).collect();
-        log::info!("Files: {:?}", f);
-
-        // Fetch first file
-        assert_eq!(f[0].short_file_name(), "TEST.BIN");
-
-        let mut d1 = [0u8; 1024];
-        for i in 0..d1.len() {
-            d1[i] = rand::random::<u8>();
-        }
-
-        // Rewind and write data
-        let mut f0 = f[0].to_file();
-        f0.rewind();
-        f0.write_all(&d1).unwrap();
-        f0.flush();
-        drop(f0);
-
-        // Read back written data
-        let mut f1 = f[0].to_file();
-        let mut v0 = Vec::new();
-        f1.read_to_end(&mut v0).unwrap();
-        assert_eq!(v0.as_slice(), d1);
+    fn write_multi_cluster_file() {
+        write_file::<64_000>();
     }
 
     #[test]
-    fn write_huge_file() {
-
-        // GhostFAT files
-        let mut data = [0u8; 64 * 1024];
-        for i in 0..data.len() {
-            data[i] = rand::random::<u8>();
-        }
-
-        let files = &mut [
-            File::new("TEST.BIN", &mut data).unwrap(),
-        ];
-
-        // Setup GhostFAT
-        let disk = setup(files);
-
-        // Setup fatfs
-        let fs = fatfs::FileSystem::new(disk, FsOptions::new()).unwrap();
-        assert_eq!(fs.fat_type(), FatType::Fat16);
-
-        // Check base directory
-        let root_dir = fs.root_dir();
-
-        // Load files
-        let f: Vec<_> = root_dir.iter().map(|v| v.unwrap() ).collect();
-        log::info!("Files: {:?}", f);
-
-        // Fetch first file
-        assert_eq!(f[0].short_file_name(), "TEST.BIN");
-
-        let mut d1 = [0u8; 64 * 1024];
-        for i in 0..d1.len() {
-            d1[i] = rand::random::<u8>();
-        }
-
-        // Rewind and write data
-        let mut f0 = f[0].to_file();
-        f0.rewind();
-        f0.write_all(&d1).unwrap();
-        f0.flush();
-        drop(f0);
-
-        // Read back written data
-        let mut f1 = f[0].to_file();
-        let mut v0 = Vec::new();
-        f1.read_to_end(&mut v0).unwrap();
-        assert_eq!(v0.as_slice(), d1);
+    #[ignore = "not yet supported"]
+    fn write_multi_fat_file() {
+        write_file::<128_000>();
     }
 
     #[test]

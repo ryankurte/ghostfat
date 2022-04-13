@@ -152,6 +152,15 @@ impl <'a, const BLOCK_SIZE: usize> File<'a, BLOCK_SIZE> {
         }
     }
 
+    /// Fetch number of blocks required to store file
+    pub(crate) fn num_blocks(&self) -> usize {
+        let mut blocks = self.len() / BLOCK_SIZE;
+        if self.len() % BLOCK_SIZE != 0 {
+            blocks += 1;
+        }
+        blocks
+    }
+
     /// Fetch file attributes
     pub(crate) fn attrs(&self) -> Attrs {
         match &self.data {

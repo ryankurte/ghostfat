@@ -20,3 +20,4 @@ Derived from:
 
 - https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system
 - https://teslabs.com/openplayer/docs/docs/prognotes/appnote_fat16.pdf
+- https://academy.cba.mit.edu/classes/networking_communications/SD/FAT.pdf
