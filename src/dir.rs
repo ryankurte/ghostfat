@@ -42,3 +42,9 @@ pub struct DirectoryEntry {
     #[pkd(7, 0, 28, 31)]
     pub size: u32,
 }
+
+
+#[cfg(test)]
+mod tests {
+
+}

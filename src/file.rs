@@ -208,3 +208,28 @@ impl <'a, const BLOCK_SIZE: usize> File<'a, BLOCK_SIZE> {
         return 0
     } 
 }
+
+pub struct ChunkIter {
+    offset: u32,
+    index: u32,
+    len: u32,
+}
+
+impl Iterator for ChunkIter {
+    type Item = u16;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index < self.len {
+            let n = self.offset + self.index;
+            self.index += 1;
+            Some(n as u16)
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+}
