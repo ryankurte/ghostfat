@@ -178,7 +178,6 @@ fn read_multi_cluster_file() {
 }
 
 #[test]
-#[ignore = "not yet supported"]
 fn read_multi_fat_file() {
     read_file::<200_000>();
 }
@@ -242,7 +241,6 @@ fn write_multi_cluster_file() {
 }
 
 #[test]
-#[ignore = "not yet supported"]
 fn write_multi_fat_file() {
     write_file::<128_000>();
 }

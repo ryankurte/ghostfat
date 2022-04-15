@@ -49,6 +49,79 @@ impl <'a, const BLOCK_SIZE: usize> GhostFat<'a, BLOCK_SIZE> {
             config,
         }
     }
+
+    fn fat(id: usize, files: &[File<BLOCK_SIZE>], block: &mut [u8]){
+        let mut index = 0;
+
+        // Clear block
+        for b in block.iter_mut() {
+            *b = 0;
+        }
+
+        // First FAT contains media and file end marker in clusters 0 and 1
+        if id == 0 {
+            block[0] = 0xf0;
+            block[1] = 0xff;
+            block[2] = 0xff;
+            block[3] = 0xff;
+            index = 2;
+        }
+
+        // Compute cluster offset from FAT ID
+        let cluster_offset = id * BLOCK_SIZE / 2;
+        // Allocated blocks start at two to avoid reserved sectors
+        let mut block_index = 2;
+
+        // Iterate through available files to allocate blocks
+        for f in files.iter() {
+            // Determine number of blocks required for each file
+            let block_count = f.num_blocks();
+
+            // Skip entries where file does not overlap FAT
+            //#[cfg(nope)]
+            if (block_index + block_count < cluster_offset) || (block_index > cluster_offset + BLOCK_SIZE/1) {
+                block_index += block_count;
+                continue;
+            }
+
+            if cluster_offset >= block_index + block_count {
+                block_index += block_count;
+                continue;
+            }
+            
+            println!("FAT {} File: '{}' {} clusters starting at cluster {}", id, f.name(), block_count, block_index);
+
+            let (file_offset, remainder) = if cluster_offset > block_index {
+                (cluster_offset - block_index, block_count + block_index - cluster_offset)
+            } else {
+                (0, block_count)
+            };
+
+            let blocks = usize::min(remainder, (BLOCK_SIZE / 2) - (index % BLOCK_SIZE));
+
+            println!("FAT offset: {} file offset: {} remainder: {} clusters: {}", cluster_offset, file_offset, remainder, blocks);
+
+            for i in 0..blocks {
+                let j = i * 2;
+
+                let v: u16 = if remainder == blocks && i == blocks-1 {
+                    0xFFFF
+                } else {
+                    (block_index + file_offset + i + 1) as u16
+                };
+
+                block[index * 2 + j] =  v as u8;
+                block[index * 2 + j + 1] = (v >> 8) as u8;
+            }
+
+            // Increase FAT index
+            index += blocks;
+
+            // Increase block index
+            block_index += blocks;
+        }
+    } 
+
 }
 
 /// [`BlockDevice`] implementation for use with [`usbd_scsi`]
@@ -78,7 +151,7 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
         } else if lba < self.config.start_rootdir() {
             let mut section_index = lba - self.config.start_fat0();
 
-            info!("Read FAT section index: {} (lba: {})", section_index, lba);
+            debug!("Read FAT section index: {} (lba: {})", section_index, lba);
 
             // The file system contains two copies of the FAT
             // wrap the section index to overlap these
@@ -86,81 +159,8 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
                 section_index -= self.config.sectors_per_fat();
             }
 
-            // Track allocated block count
-            let mut index = 0;
-        
-            // Set allocations for static files
-            // TODO: unwrap files across FATs
-
-            // First FAT contains media and file end marker in clusters 0 and 1
-            if section_index == 0 {
-                index = 2;
-                block[0] = 0xf0;
-                block[1] = 0xff;
-                block[2] = 0xff;
-                block[3] = 0xff;
-            }
-
-            // Calculate offset for FAT
-            let fat_offset = section_index as usize * BLOCK_SIZE / 2;
-            let mut block_index = 0;
-
-            // Allocate blocks for each file
-            for f in self.fat_files.iter() {
-                // Determine number of blocks required for each file
-                let block_count = f.num_blocks();
-
-                // Skip entries for prior / future FATs
-                if (block_index + block_count < fat_offset) || (block_index > fat_offset) {
-                    block_index += block_count;
-                    continue;
-                }
-
-                info!("FAT: 0x{:02x} File: {}, {} blocks offset: {}", section_index, f.name(), block_count, block_index);
-
-                // Compute file / FAT overlap
-                let start = if fat_offset > block_index {
-                    fat_offset - block_index
-                } else {
-                    0
-                };
-
-                // Limit to available FAT size
-                let end = usize::min(block_count, (BLOCK_SIZE / 2) - index);
-
-                info!("FAT offset: {} Start: {} end: {}", fat_offset, start, end);
-
-                // Write block allocations (2 byte)
-                for i in start..end {
-                    let j = i * 2;
-
-                    if i == block_count - 1 {
-                        // Final block contains 0xFFFF
-                        block[index * 2 + j] = 0xFF;
-                        block[index * 2 + j + 1] = 0xFF;
-                    } else {
-                        // Preceding blocks should link to next object
-                        // TODO: not sure this linking is correct... should split and test
-                        block[index * 2 + j] =  (block_index + 2 + i + 1) as u8;
-                        block[index * 2 + j + 1] = ((block_index + 2 + i + 1) >> 8) as u8;
-                    }
-                }
-
-                // Increase FAT index
-                index += end - start;
-
-                // Increase block index
-                block_index += block_count;
-            }
-
-
-            warn!("FAT {}: {:?}", section_index, &block[..index*2]);
-
-            // Mark further chunks as used
-            #[cfg(nope)]
-            for b in &mut block[index*2..] {
-                *b = 0xFE;
-            }
+            Self::fat(section_index as usize, &self.fat_files, block);
+            trace!("FAT {}: {:?}", section_index, &block);
 
         // Directory entries follow
         } else if lba < self.config.start_clusters() {
@@ -311,82 +311,35 @@ impl <'a, const BLOCK_SIZE: usize>BlockDevice for GhostFat<'a, BLOCK_SIZE> {
 
 #[cfg(test)]
 mod tests {
-    use crate::File;
+    use crate::{GhostFat, File};
 
-    fn fat<const BLOCK_SIZE: usize>(id: usize, files: &[File<BLOCK_SIZE>], block: &mut [u8]){
-        let mut index = 0;
-
-        // First FAT contains media and file end marker in clusters 0 and 1
-        if id == 0 {
-            block[0] = 0xf0;
-            block[1] = 0xff;
-            block[2] = 0xff;
-            block[3] = 0xff;
-            index = 2;
-        }
-
-        // Compute cluster offset from FAT ID
-        let cluster_offset = id * BLOCK_SIZE / 2;
-        // Allocated blocks start at two to avoid reserved sectors
-        let mut block_index = 2;
-
-        // Iterate through available files to allocate blocks
-        for f in files.iter() {
-            // Determine number of blocks required for each file
-            let block_count = f.num_blocks();
-
-            // Skip entries where file does not overlap FAT
-            #[cfg(nope)]
-            if (block_index + block_count < cluster_offset) || (block_index > cluster_offset) {
-                block_index += block_count;
-                continue;
-            }
-            
-            println!("FAT {} File: '{}' {} clusters starting at cluster {}", id, f.name(), block_count, block_index);
-
-            let blocks = usize::min(block_count, (BLOCK_SIZE / 2) - (block_index % BLOCK_SIZE));
-
-            println!("offset: {} clusters: {}", cluster_offset, blocks);
-
-            if block_index < cluster_offset  {
-                block_index += cluster_offset - block_index;
-            }
-
-            for i in 0..blocks {
-                let j = i * 2;
-
-                block[index * 2 + j] =  (block_index + i + 1) as u8;
-                block[index * 2 + j + 1] = ((block_index + i + 1) >> 8) as u8;
-            }
-
-            // Increase FAT index
-            index += blocks;
-
-            // Increase block index
-            block_index += blocks;
-        }
-    } 
 
     #[test]
     fn file_offsets() {
-        let data = [0xAAu8; 32];
+        let data = [0xAAu8; 64];
         let f = [File::<8>::new_ro("test.bin", &data)];
         assert_eq!(f[0].len(), data.len());
 
         let mut block = [0u8; 8];
-        fat(0, &f, &mut block);
+        GhostFat::fat(0, &f, &mut block);
         println!("FAT0: {:02x?}", block);
 
-//        assert_eq!(&block, &[
-//            0xf0, 0xff, 0xff, 0xff, 
-//            0x02, 0x00, 0x03, 0x00]);
+        assert_eq!(&block, &[
+            0xf0, 0xff, 0xff, 0xff, 
+            0x03, 0x00, 0x04, 0x00]);
 
 
-        fat(1, &f, &mut block);
+        GhostFat::fat(1, &f, &mut block);
         println!("FAT1: {:02x?}", block);
+        assert_eq!(&block, &[
+            0x05, 0x00, 0x06, 0x00, 
+            0x07, 0x00, 0x08, 0x00]);
 
-        fat(2, &f, &mut block);
+        GhostFat::fat(2, &f, &mut block);
         println!("FAT2: {:02x?}", block);
+        assert_eq!(&block, &[
+            0x09, 0x00, 0xff, 0xff, 
+            0x00, 0x00, 0x00, 0x00]);
 
         assert!(true);
     }
