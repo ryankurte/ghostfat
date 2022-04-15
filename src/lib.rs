@@ -89,7 +89,7 @@ impl <'a, const BLOCK_SIZE: usize> GhostFat<'a, BLOCK_SIZE> {
                 continue;
             }
             
-            println!("FAT {} File: '{}' {} clusters starting at cluster {}", id, f.name(), block_count, block_index);
+            debug!("FAT {} File: '{}' {} clusters starting at cluster {}", id, f.name(), block_count, block_index);
 
             let (file_offset, remainder) = if cluster_offset > block_index {
                 (cluster_offset - block_index, block_count + block_index - cluster_offset)
@@ -99,7 +99,7 @@ impl <'a, const BLOCK_SIZE: usize> GhostFat<'a, BLOCK_SIZE> {
 
             let blocks = usize::min(remainder, (BLOCK_SIZE / 2) - (index % BLOCK_SIZE));
 
-            println!("FAT offset: {} file offset: {} remainder: {} clusters: {}", cluster_offset, file_offset, remainder, blocks);
+            debug!("FAT offset: {} file offset: {} remainder: {} clusters: {}", cluster_offset, file_offset, remainder, blocks);
 
             for i in 0..blocks {
                 let j = i * 2;
