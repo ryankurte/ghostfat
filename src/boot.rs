@@ -101,7 +101,7 @@ impl FatBootBlock {
         fat.volume_label[..8].copy_from_slice("BLUEPILL".as_bytes());
         fat.filesystem_identifier[..5].copy_from_slice("FAT16".as_bytes());
 
-        crate::info!("BootBlock: {:?}", fat);
+        crate::debug!("BootBlock: {:?}", fat);
 
         fat
     }
