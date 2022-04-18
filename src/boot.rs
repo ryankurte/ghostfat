@@ -97,9 +97,14 @@ impl FatBootBlock {
             filesystem_identifier: [0x20; 8],
         };
 
-        fat.oem_info[..7].copy_from_slice("UF2 UF2".as_bytes());
-        fat.volume_label[..8].copy_from_slice("BLUEPILL".as_bytes());
-        fat.filesystem_identifier[..5].copy_from_slice("FAT16".as_bytes());
+        let len = usize::min(fat.oem_info.len() - 1, config.oem_info.as_bytes().len());
+        fat.oem_info[..len].copy_from_slice(&config.oem_info.as_bytes()[..len]);
+
+        let len = usize::min(fat.volume_label.len() - 1, config.volume_label.as_bytes().len());
+        fat.volume_label[..len].copy_from_slice(&config.volume_label.as_bytes()[..len]);
+
+        let len = usize::min(fat.filesystem_identifier.len() - 1, config.filesystem_identifier.as_bytes().len());
+        fat.filesystem_identifier[..len].copy_from_slice(&config.filesystem_identifier.as_bytes()[..len]);
 
         crate::debug!("BootBlock: {:?}", fat);
 

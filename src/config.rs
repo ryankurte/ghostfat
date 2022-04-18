@@ -9,11 +9,17 @@ pub struct Config<const BLOCK_SIZE: usize = 512> {
     /// Root directory sectors
     pub root_dir_sectors: u32,
 
+    /// OEM info, defaults to "UF2 UF2"
     pub oem_info: &'static str,
 
+    /// Volume label, defaults to "GHOSTFAT"
     pub volume_label: &'static str,
 
+    /// FileSystem Identifier, defaults to "FAT16"
     pub filesystem_identifier: &'static str,
+
+    /// Force use of Default::default() for construction
+    _reserved: (),
 }
 
 impl <const BLOCK_SIZE: usize> Default for Config<BLOCK_SIZE> {
@@ -25,6 +31,7 @@ impl <const BLOCK_SIZE: usize> Default for Config<BLOCK_SIZE> {
             oem_info: "UF2 UF2",
             volume_label: "GHOSTFAT",
             filesystem_identifier: "FAT16",
+            _reserved: (),
         }
     }
 }
