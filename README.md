@@ -15,7 +15,8 @@ Derived from:
 [![Crates.io](https://img.shields.io/crates/v/ghostfat.svg)](https://crates.io/crates/ghostfat)
 [![Docs.rs](https://docs.rs/ghostfat/badge.svg)](https://docs.rs/ghostfat)
 
-**Extremely WIP**
+**WIP, functional but not well-tested, check out the [issues](https://github.com/ryankurte/ghostfat/issues)**
+
 ## Resources
 
 - https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system
