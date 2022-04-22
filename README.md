@@ -1,9 +1,7 @@
 # GhostFAT
 
-A fake FAT file system for use with USB Mass Storage Device drivers, based entirely on others hard work.
+A fake FAT file system for use with USB Mass Storage Device drivers, standing on the shoulders of giants:
 
-
-Derived from:
 - [@cs2dsb's stm32-usb.rs](https://github.com/cs2dsb/stm32-usb.rs/blob/master/firmware/usb_bootloader/src/ghost_fat.rs)
 - [@lupyen's bluepill-bootloader](https://github.com/lupyuen/bluepill-bootloader/blob/master/src/ghostfat.c)
 
